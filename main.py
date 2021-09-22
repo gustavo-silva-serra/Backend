@@ -233,15 +233,8 @@ class ShopCartServer(object):
     # @cherrypy.tools.json_out()
     @cherrypy.expose
     def index(self):
-        # CherryPy não aceita que se receba um body de forma convencional para um GET. Como eu não sabia se implementar
-        # o serviço no GET era um requisito, tive que contornar o problema fazendo leitura de linha a linha do body
-        body = b''
-        line = cherrypy.request.body.readline()
-        while line:
-            body = body + line
-            line = cherrypy.request.body.readline()
         cart = ShopCart()
-        return cart.process(body.decode("utf-8"))
+        return cart.process(cherrypy.request.body.read().decode("utf-8"))
     
 
 if __name__ == "__main__":
