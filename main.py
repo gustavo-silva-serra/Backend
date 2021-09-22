@@ -112,7 +112,7 @@ class DiscountEngine:
         
         # Nao existe desconto em cache ou expirou 
         try:
-            channel = grpc.insecure_channel('192.168.0.12:50050')
+            channel = grpc.insecure_channel('192.168.0.12:50051')
             stub = discount_pb2_grpc.DiscountStub(channel)
             perc = float(stub.GetDiscount(discount_pb2.GetDiscountRequest(productID = product_id), timeout=2).percentage)
         except Exception as e:
@@ -179,7 +179,10 @@ class ShopCart:
         
     def process(self, input_json):
         try:
-            input_json = json.loads(input_json)
+            try:
+                input_json = json.loads(input_json)
+            except:
+                raise cherrypy.HTTPError(500, 'Erro processando JSON de entrada')
             cart = Cart()
             
             # Varre os produtos recebidos no carrinho
@@ -208,7 +211,8 @@ class ShopCart:
                 p.is_gift = True
                 EventNotifierManager().notify_event("debug", "Produto {0} retornado como gift".format(p.id))
 
-            return json.dumps(cart, default=lambda o: o.__dict__)
+            cherrypy.response.headers['Content-Type'] = 'application/json'
+            return json.dumps(cart, default=lambda o: o.__dict__).encode('utf8')
         except Exception as e:
             EventNotifierManager().notify_event("error", e)
             raise
@@ -222,7 +226,8 @@ class ShopCartServer(object):
         há a possibilidade de parametrizar inclusive acesso via certificado  di-
         gital.
     """
-
+    
+    # @cherrypy.tools.json_out()
     @cherrypy.expose
     def index(self):
         # CherryPy não aceita que se receba um body de forma convencional para um GET. Como eu não sabia se implementar
@@ -242,6 +247,11 @@ if __name__ == "__main__":
     EventNotifierManager().add_event_listener("error", PrintToScreenNotifier())
     EventNotifierManager().add_event_listener("debug", PrintToScreenNotifier())
     
-    cherrypy.config.update({'server.socket_host':"0.0.0.0", 'server.socket_port':8181, 'log.screen': False, 'log.access_file': "access1.log", 'log.error_file': "error1.log"})
+    cherrypy.config.update({'server.socket_host':"0.0.0.0", 
+                            'server.socket_port':8181, 
+                            'log.screen': False, # Nao joga informacao na tela
+                            'log.access_file': "access1.log", 
+                            'log.error_file': "error1.log",
+                            'request.show_tracebacks': True}) # True para retornar stack trace
     cherrypy.quickstart(ShopCartServer(), '/')
 
