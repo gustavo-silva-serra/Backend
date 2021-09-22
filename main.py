@@ -1,9 +1,5 @@
 #!/usr/bin/python3
-#TODO: tentar reconectar de quanto em quanto tempo caso o serviço tenha ficado offline?
-#TODO: o que posso fazer em termos de validacao de input?
-#TODO: sinalizar no JSON de resposta erros de acesso?
 #OTOD: parametros do meu servico: porta http, tempo para cache, tamanho da fila
-#TODO: banco está sempre inicializando
 #TODO: posso trocar facilmente autenticação/protocolo da minha interface HTTP?
 #TODO: posso trocar o insecure_channel?
 
@@ -35,13 +31,13 @@ class ProductDatabase:
     
     def __init__(self):
         """ Carrega em memória as mercadorias disponíveis """
-        if not self.products_map:
+        if not ProductDatabase.products_map:
             products_db = json.loads(open('products.json').read())
-            self.products_map = {product['id']:product for product in products_db}
+            ProductDatabase.products_map = {product['id']:product for product in products_db}
     
     def get_price_gift(self,product_id):
         """Retorna o preço e a flag is_gift para um determinado id"""
-        return int(self.products_map[product_id]['amount']),bool(self.products_map[product_id]['is_gift'])
+        return int(ProductDatabase.products_map[product_id]['amount']),bool(ProductDatabase.products_map[product_id]['is_gift'])
 
 class EventNotifier(abc.ABC):
     """ Classe abstrata para tratar notificação de eventos .
@@ -96,6 +92,7 @@ class DiscountEngine:
     
     cache_timeout = 0
     cached = {}    
+    last_error_time = 0 # timestamp do último erro de rede
     
     def __init__(self, cache_t):
         """ Inicializa a cache com cache_t segundos """
@@ -106,16 +103,22 @@ class DiscountEngine:
         
         # Se existe uma cache, procura primeiro nela
         if self.cache_timeout > 0:
-            if product_id in self.cached.keys():
-                if time.time() - self.cached[product_id][0] < self.cache_timeout:
-                    return self.cached[product_id][1]
+            if product_id in DiscountEngine.cached.keys():
+                if time.time() - DiscountEngine.cached[product_id][0] < self.cache_timeout:
+                    return DiscountEngine.cached[product_id][1]
         
+        if DiscountEngine.last_error_time > 0:
+            if time.time() - DiscountEngine.last_error_time < 5:
+                return 0
+                
         # Nao existe desconto em cache ou expirou 
         try:
             channel = grpc.insecure_channel('192.168.0.12:50051')
             stub = discount_pb2_grpc.DiscountStub(channel)
             perc = float(stub.GetDiscount(discount_pb2.GetDiscountRequest(productID = product_id), timeout=2).percentage)
+            DiscountEngine.last_error_time = 0
         except Exception as e:
+            DiscountEngine.last_error_time = time.time()
             EventNotifierManager().notify_event("error", e)
             return 0
         
@@ -124,9 +127,9 @@ class DiscountEngine:
         # uma lista circular. Um meio termo seria o acesso com mutex (read ou 
         # write lock) com uma thread de análise a cada X segundos
         if self.cache_timeout > 0:
-            if len(self.cached) > 10000: # Limite facilmente parametrizavel
-                self.cached = {}
-            self.cached[product_id] = (time.time(), perc)
+            if len(DiscountEngine.cached) > 10000: # Limite facilmente parametrizavel
+                DiscountEngine.cached = {}
+            DiscountEngine.cached[product_id] = (time.time(), perc)
             
         return perc
 
