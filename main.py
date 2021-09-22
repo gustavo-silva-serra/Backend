@@ -1,5 +1,4 @@
 #!/usr/bin/python3
-#TODO: deixar registro das consultas e dos erros?
 #TODO: tentar reconectar de quanto em quanto tempo caso o serviço tenha ficado offline?
 #TODO: o que posso fazer em termos de validacao de input?
 #TODO: posso trocar facilmente o metodo de consulta do meu servico para banco de dados, por ex? strategy pattern
@@ -21,6 +20,7 @@ import grpc
 import json
 import cherrypy
 import time
+import abc
 
 class ProductDatabase:
     def __init__(self):
@@ -29,6 +29,33 @@ class ProductDatabase:
     
     def get_price(self,product_id):
         return int(self.products_map[product_id]['amount'])
+
+class EventNotifier(abc.ABC):
+    @abc.abstractmethod
+    def notify_event(self,event):
+        pass
+
+class PrintToScreenNotifier(EventNotifier):
+    def notify_event(self,event):
+        print(event)
+
+class SaveToFileNotifier(EventNotifier):
+    def notify_event(self,event):
+        with open('application_log.txt', 'a') as f:
+            f.write(str(event))
+
+class EventNotifierManager:
+    listeners = {}
+    
+    def add_event_listener(self, event_type, listener):
+        if event_type not in self.listeners:
+            self.listeners[event_type] = []
+        self.listeners[event_type].append(listener)
+    
+    def notify_event(self,event_type, event):
+        if event_type in self.listeners:
+            for l in self.listeners[event_type]:
+                l.notify_event(event)
 
 class DiscountEngine:
     cache_timeout = 0
@@ -44,10 +71,14 @@ class DiscountEngine:
                 if time.time() - self.cached[product_id][0] < self.cache_timeout:
                     return self.cached[product_id][1]
         
-        # Nao existe cache ou expirou    
-        channel = grpc.insecure_channel('192.168.0.12:50051')
-        stub = discount_pb2_grpc.DiscountStub(channel)
-        perc = float(stub.GetDiscount(discount_pb2.GetDiscountRequest(productID = product_id)).percentage)
+        # Nao existe cache ou expirou 
+        try:
+            channel = grpc.insecure_channel('192.168.0.12:50051')
+            stub = discount_pb2_grpc.DiscountStub(channel)
+            perc = float(stub.GetDiscount(discount_pb2.GetDiscountRequest(productID = product_id)).percentage)
+        except Exception as e:
+            EventNotifierManager().notify_event("error", e)
+            return 0
         
         # Atualiza o desconto na cache
         if self.cache_timeout > 0:
@@ -82,16 +113,20 @@ class Cart:
 class ShopCart:
     
     def process(self, input_json):
-        input_json = json.loads(input_json)
-        cart = Cart()
-        
-        for product in input_json['products']:
-            prod_id,prod_qnt = product['id'],product['quantity']
-            amount = ProductDatabase().get_price(prod_id)
-            discount_percentage = DiscountEngine(5).get_discount(prod_id)
-            cart.add_product(Product(prod_id, prod_qnt, amount, discount_percentage))
+        try:
+            input_json = json.loads(input_json)
+            cart = Cart()
             
-        return json.dumps(cart, default=lambda o: o.__dict__)
+            for product in input_json['products']:
+                prod_id,prod_qnt = product['id'],product['quantity']
+                amount = ProductDatabase().get_price(prod_id)
+                discount_percentage = DiscountEngine(5).get_discount(prod_id)
+                cart.add_product(Product(prod_id, prod_qnt, amount, discount_percentage))
+                
+            return json.dumps(cart, default=lambda o: o.__dict__)
+        except Exception as e:
+            EventNotifierManager().notify_event("error", e)
+            raise
 
 class ShopCartServer(object):
 
@@ -109,6 +144,11 @@ class ShopCartServer(object):
     
 
 if __name__ == "__main__":
-    cherrypy.config.update({'server.socket_host':"0.0.0.0", 'server.socket_port':8181})
+    
+    EventNotifierManager().add_event_listener("error", SaveToFileNotifier())
+    EventNotifierManager().add_event_listener("error", PrintToScreenNotifier())
+    EventNotifierManager().add_event_listener("debug", PrintToScreenNotifier())
+    
+    cherrypy.config.update({'server.socket_host':"0.0.0.0", 'server.socket_port':8181, 'log.screen': False, 'log.access_file': "access1.log", 'log.error_file': "error1.log"})
     cherrypy.quickstart(ShopCartServer(), '/')
 

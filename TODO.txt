@@ -7,3 +7,4 @@ DONE: implementar gerenciamento de tamanho para cache de descontos
     - apesar de não ser um mecanismo sofisticado, é simples de entender e manter e não compromete o tempo de 
       execução como uma lista circular. Um meio termo seria o acesso com mutex (read ou write lock) com uma thread de
       análise a cada X segundos
+DONE: criado mecanismo para registro de erros e debug
