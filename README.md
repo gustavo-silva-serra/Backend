@@ -2,7 +2,11 @@
 
 Olá!
 
-Todo o projeto está desenvolvido no arquivo main.py.
+Obrigado pela sua visita. Este é um projeto interessante para considerar diferentes aspectos de escalabilidade. Em alguns pontos também é possível optar por maior controle sobre os dados recebidos e enviados em detrimento de performance ou simplicidade do código.
+
+Para acessar o projeto em Docker, [acessar aqui](https://hub.docker.com/r/gustavosilvaserra/backend-test)
+
+Considerando o escopo do projeto, todo o desenvolvimento foi realizado no arquivo main.py.
 
 Para executar o projeto basta configurar as variáveis de ambiente LISTEN_PORT (porta em que o serviço receberá as conexões) e GRPC_IP_PORT (IP:porta do serviço de descontos), conforme o exemplo abaixo:
 
