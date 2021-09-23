@@ -1,15 +1,4 @@
 #!/usr/bin/python3
-#OTOD: parametros do meu servico: porta http, tempo para cache, tamanho da fila
-#TODO: posso trocar facilmente autenticação/protocolo da minha interface HTTP?
-#TODO: posso trocar o insecure_channel?
-
-# -----------------------------------------------------------------------------
-# Possíveis pontos de melhoria e customização:
-#
-#1) Timeout configurável para buscar descontos via gRPC
-#2) Sinalizar no JSON de resposta erros de acesso para que o chamador decida o
-# o que deve ser feito
-
 
 import discount_pb2_grpc
 import discount_pb2
@@ -18,6 +7,7 @@ import json
 import cherrypy
 import time
 import abc
+import os
 
 class ProductDatabase:
     """ Atua como proxy no acesso ao banco de mercadorias.
@@ -94,17 +84,14 @@ class DiscountEngine:
     cached = {}    
     last_error_time = 0 # timestamp do último erro de rede
     
-    def __init__(self, cache_t):
-        """ Inicializa a cache com cache_t segundos """
-        self.cache_timeout = cache_t 
-
     def get_discount(self,product_id):
         """ Retorna o desconto associado a um produto """
         
         # Se existe uma cache, procura primeiro nela
-        if self.cache_timeout > 0:
+        if DiscountEngine.cache_timeout> 0:
             if product_id in DiscountEngine.cached.keys():
                 if time.time() - DiscountEngine.cached[product_id][0] < self.cache_timeout:
+                    print('Retornando desconto da cache')
                     return DiscountEngine.cached[product_id][1]
         
         if DiscountEngine.last_error_time > 0:
@@ -113,7 +100,7 @@ class DiscountEngine:
                 
         # Nao existe desconto em cache ou expirou 
         try:
-            channel = grpc.insecure_channel('192.168.0.12:50051')
+            channel = grpc.insecure_channel(os.environ['GRPC_IP_PORT'])
             stub = discount_pb2_grpc.DiscountStub(channel)
             perc = float(stub.GetDiscount(discount_pb2.GetDiscountRequest(productID = product_id), timeout=2).percentage)
             DiscountEngine.last_error_time = 0
@@ -126,7 +113,7 @@ class DiscountEngine:
         # é simples de entender e manter e não compromete o tempo de execução como 
         # uma lista circular. Um meio termo seria o acesso com mutex (read ou 
         # write lock) com uma thread de análise a cada X segundos
-        if self.cache_timeout > 0:
+        if DiscountEngine.cache_timeout> 0:
             if len(DiscountEngine.cached) > 10000: # Limite facilmente parametrizavel
                 DiscountEngine.cached = {}
             DiscountEngine.cached[product_id] = (time.time(), perc)
@@ -164,6 +151,10 @@ class DefaultBlackFridayEngine:
         loja: produto mais barato, produto menos vendido, etc.
     """
     def apply(self, products):
+        
+        # Nesse ponto a data poderia ser validada, para fins de teste, sempre 
+        # é Black Friday
+        
         """ Escolhe o produto mais barato, independente da quantidade """
         if len(products) <= 0:
             return None
@@ -200,7 +191,7 @@ class ShopCart:
                     # avisar o chamador que essa mercadoria precisa ser removida do carrinho
                     continue
 
-                discount_percentage = DiscountEngine(5).get_discount(prod_id)
+                discount_percentage = DiscountEngine().get_discount(prod_id)
                 
                 product = Product(prod_id, prod_qnt, amount, discount_percentage)
                 cart.add_product(product)
@@ -239,12 +230,23 @@ class ShopCartServer(object):
 
 if __name__ == "__main__":
     
+    if 'GRPC_IP_PORT' not in os.environ:
+        raise Exception('Você deve configurar a variável GRPC_IP_PORT com o IP do serviço de desconto no formato IP:PORTA')
+
+    if 'LISTEN_PORT' not in os.environ:
+        raise Exception('Você deve configurar a variável LISTEN_PORT com a porta deste serviço')
+    
+    if 'DISCOUNT_CACHE' in os.environ:
+        DiscountEngine.cache_timeout = int(os.environ['DISCOUNT_CACHE'])
+    else:
+        DiscountEngine.cache_timeout = 5
+        
     EventNotifierManager().add_event_listener("error", SaveToFileNotifier())
     EventNotifierManager().add_event_listener("error", PrintToScreenNotifier())
     EventNotifierManager().add_event_listener("debug", PrintToScreenNotifier())
     
     cherrypy.config.update({'server.socket_host':"0.0.0.0", 
-                            'server.socket_port':8181, 
+                            'server.socket_port':int(os.environ['LISTEN_PORT']),
                             'log.screen': False, # Nao joga informacao na tela
                             'log.access_file': "access1.log", 
                             'log.error_file': "error1.log",
