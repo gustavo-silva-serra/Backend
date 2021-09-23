@@ -8,7 +8,9 @@ Para acessar o projeto em Docker, [acessar aqui](https://hub.docker.com/r/gustav
 
 Considerando o escopo do projeto, todo o desenvolvimento foi realizado no arquivo main.py.
 
-Para executar o projeto basta configurar as variáveis de ambiente LISTEN_PORT (porta em que o serviço receberá as conexões) e GRPC_IP_PORT (IP:porta do serviço de descontos), conforme o exemplo abaixo:
+Para executar o projeto basta configurar as variáveis de ambiente **LISTEN_PORT** (porta em que o serviço receberá as conexões) e **GRPC_IP_PORT** (IP:porta do serviço de descontos). Também é possível definir **DISCOUNT_CACHE** com o valor em segundos para o tempo para a cache de descontos, utilizando 0 (zero) para desabilitar.
+
+Segue o exemplo abaixo:
 
 CMD no Windows:
 
