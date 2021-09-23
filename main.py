@@ -1,5 +1,10 @@
 #!/usr/bin/python3
 
+# Para rodar o programa é necessário instalar as seguintes dependências:
+# pip install protobuf
+# pip install grpcio
+# pip install cherrypy
+
 import discount_pb2_grpc
 import discount_pb2
 import grpc
@@ -98,7 +103,7 @@ class DiscountEngine:
             if time.time() - DiscountEngine.last_error_time < 5:
                 return 0
                 
-        # Nao existe desconto em cache ou expirou 
+        # Não existe desconto em cache ou expirou 
         try:
             channel = grpc.insecure_channel(os.environ['GRPC_IP_PORT'])
             stub = discount_pb2_grpc.DiscountStub(channel)
@@ -123,11 +128,18 @@ class DiscountEngine:
 class Product:
     """ Representa um produto a ser retornado para o chamador do serviço """
     def __init__(self, prod_id, quantity, amount, discount_percentage):
+        # Em produção o melhor seria validar todos os parâmetros de produto
+        # junto à validação sintática e semântica do JSON de entrada em si
+        assert(int(quantity) > 0)
+        assert(int(amount) > 0)
+        assert(int(prod_id) > 0)
         self.id = int(prod_id)
         self.quantity = int(quantity)
         self.unit_amount = int(amount)
         self.total_amount = self.quantity * self.unit_amount
-        self.discount = int(float(discount_percentage) * self.total_amount)
+        self.discount = 0
+        if discount_percentage > 0 and discount_percentage < 1:
+            self.discount = int(float(discount_percentage) * self.total_amount)
         self.is_gift = False
 
 class Cart:
@@ -139,6 +151,8 @@ class Cart:
         self.products = []
     
     def add_product(self, product):
+        # Se for possível manipular os produtos do carrinho após adicionados na 
+        # lista, o total será que ser calculado dinâmicamente antes de gerar o JSON
         self.total_amount += product.total_amount
         self.total_discount += product.discount
         self.total_amount_with_discount = self.total_amount - self.total_discount
@@ -182,6 +196,9 @@ class ShopCart:
             # Varre os produtos recebidos no carrinho
             for product in input_json['products']:
                 prod_id,prod_qnt = product['id'],product['quantity']
+                
+                if prod_qnt <= 0:
+                    continue
                 
                 # Busca preço e desconto
                 try:
@@ -244,12 +261,15 @@ if __name__ == "__main__":
     EventNotifierManager().add_event_listener("error", SaveToFileNotifier())
     EventNotifierManager().add_event_listener("error", PrintToScreenNotifier())
     EventNotifierManager().add_event_listener("debug", PrintToScreenNotifier())
+
+    # Se necessário, aumentar o número de threads para atendimento concorrente
+    # utilizando 'server.thread_pool':x
     
     cherrypy.config.update({'server.socket_host':"0.0.0.0", 
                             'server.socket_port':int(os.environ['LISTEN_PORT']),
-                            'log.screen': False, # Nao joga informacao na tela
+                            'log.screen': False, # Nao joga informação na tela
                             'log.access_file': "access1.log", 
                             'log.error_file': "error1.log",
-                            'request.show_tracebacks': True}) # True para retornar stack trace
+                            'request.show_tracebacks': True}) # True para retornar stack trace, usar False em produção
     cherrypy.quickstart(ShopCartServer(), '/')
 
