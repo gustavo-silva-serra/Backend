@@ -1,0 +1,11 @@
+version: "2"
+services:
+  backend:
+    build: .
+    image: gustavosilvaserra/backend-test
+    ports:
+      - 8081:8081
+    environment:
+      GRPC_IP_PORT: "192.168.0.12:50051"
+      LISTEN_PORT: 8081
+
