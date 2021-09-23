@@ -243,6 +243,17 @@ class ShopCartServer(object):
     def index(self):
         cart = ShopCart()
         return cart.process(cherrypy.request.body.read().decode("utf-8"))
+
+    # Não sabia qual o nome do endpoint esperado, então criei os dois abaixo
+    @cherrypy.expose
+    def checkout(self):
+        cart = ShopCart()
+        return cart.process(cherrypy.request.body.read().decode("utf-8"))
+    
+    @cherrypy.expose
+    def carrinho(self):
+        cart = ShopCart()
+        return cart.process(cherrypy.request.body.read().decode("utf-8"))        
     
 
 if __name__ == "__main__":
@@ -262,6 +273,9 @@ if __name__ == "__main__":
     EventNotifierManager().add_event_listener("error", PrintToScreenNotifier())
     EventNotifierManager().add_event_listener("debug", PrintToScreenNotifier())
 
+    print('Bem-vindo ao programa Backend')
+    print('Estamos prontos e executando na porta',os.environ['LISTEN_PORT'])
+
     # Se necessário, aumentar o número de threads para atendimento concorrente
     # utilizando 'server.thread_pool':x
     
@@ -271,5 +285,5 @@ if __name__ == "__main__":
                             'log.access_file': "access1.log", 
                             'log.error_file': "error1.log",
                             'request.show_tracebacks': True}) # True para retornar stack trace, usar False em produção
-    cherrypy.quickstart(ShopCartServer(), '/')
+    cherrypy.quickstart(ShopCartServer(), '/', {})
 
