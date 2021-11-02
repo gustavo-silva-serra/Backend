@@ -2,7 +2,7 @@
 
 This is a POC that I developed to exercise a REST API that returns discounts and prices for a shopping cart.
 
-The discount code is disabled since the original project was botched.
+The discount code is disabled since the original project was canceled.
 
 # How to run
 Configure environment variable **LISTEN_PORT**. 
@@ -12,7 +12,6 @@ Configure environment variable **LISTEN_PORT**.
 CMD on Windows:
 
 ```
-> set GRPC_IP_PORT=192.168.0.12:50051
 > set LISTEN_PORT=8081
 > .\main.py
 ```
