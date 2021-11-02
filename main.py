@@ -1,13 +1,6 @@
 #!/usr/bin/python3
 
-# Para rodar o programa é necessário instalar as seguintes dependências:
-# pip install protobuf
-# pip install grpcio
-# pip install cherrypy
-
-import discount_pb2_grpc
-import discount_pb2
-import grpc
+# import grpc
 import json
 import cherrypy
 import time
@@ -15,121 +8,102 @@ import abc
 import os
 
 class ProductDatabase:
-    """ Atua como proxy no acesso ao banco de mercadorias.
+    """ Database proxy
 
-        Conforme a evolução do banco em termos de quantidade de produtos  dispo-
-        níveis, pode ser  que seja necessário um  mecanismo mais sofisticado que 
-        não carregue todas  em memória. Outro ponto a se  considerar é a  possi-
-        bilidade de mercadorias terem seus preços atualizados ao longo do dia.
+        As the database gets bigger, it might be necessary a more sophisticated mechanism
+        that does not load all products in memory. Another thing to consider is that 
+        products may have their price updated.
     """
     products_map = {}
     
     def __init__(self):
-        """ Carrega em memória as mercadorias disponíveis """
+        """ Load products in memory """
         if not ProductDatabase.products_map:
             products_db = json.loads(open('products.json').read())
             ProductDatabase.products_map = {product['id']:product for product in products_db}
     
     def get_price_gift(self,product_id):
-        """Retorna o preço e a flag is_gift para um determinado id"""
+        """Return price and gift flag for a given id"""
         return int(ProductDatabase.products_map[product_id]['amount']),bool(ProductDatabase.products_map[product_id]['is_gift'])
 
 class EventNotifier(abc.ABC):
-    """ Classe abstrata para tratar notificação de eventos .
-    
-        Essa classe permite  que se registre um  listener para eventos em pontos
-        específicos da execução.Cada listener é livre para tomar quaisquer ações 
-        para o evento recebido. Útil para implementar handlers que possam gravar
-        eventos em um banco de dados para relatórios.
+    """ 
+        Abstract class for events notification
     """
     @abc.abstractmethod
     def notify_event(self,event):
-        """ Método que deve implementar o tratamento ao receber o evento """
         pass
 
 class PrintToScreenNotifier(EventNotifier):
-    """ Esse handler joga na tela o evento recebido """
     def notify_event(self,event):
         print(event)
 
 class SaveToFileNotifier(EventNotifier):
-    """ Esse handler joga o evento em um arquivo de log """
     def notify_event(self,event):
         with open('application_log.txt', 'a') as f:
             f.write(str(event))
 
 class EventNotifierManager:
-    """ Implementa um versão rudimentar de observer para eventos do sistema.
-    
-        Possui uma lista de handlers de eventos associados a um tipo de evento
+    """ 
+        Implements a crude observer for system events
     """
     listeners = {}
     
     def add_event_listener(self, event_type, listener):
-        """ Adiciona um handler associado a um tipo de evento """
         if event_type not in self.listeners:
             self.listeners[event_type] = []
         self.listeners[event_type].append(listener)
     
     def notify_event(self,event_type, event):
-        """ Notifica o evento a quem estiver cadastrado ao tipo respectivo """
         if event_type in self.listeners:
             for l in self.listeners[event_type]:
                 l.notify_event(event)
 
 class DiscountEngine:
-    """ Serve de proxy para acessar o webservice de descontos em produtos.
+    """ Proxy for the discount engine
     
-        Além de atuar como proxy a classe provê um mecanismo simples de cache de 
-        descontos  para evitar  acesso constante ao serviço.  No futuro pode ser
-        evoluído para mecanismos mais sofisticados de cache.
+        It implements a simple cache mechanism.
     """
     
     cache_timeout = 0
     cached = {}    
-    last_error_time = 0 # timestamp do último erro de rede
+    last_error_time = 0 # timestamp of last network error
     
     def get_discount(self,product_id):
-        """ Retorna o desconto associado a um produto """
         
-        # Se existe uma cache, procura primeiro nela
+        # if a cache is set, search in it first
         if DiscountEngine.cache_timeout> 0:
             if product_id in DiscountEngine.cached.keys():
                 if time.time() - DiscountEngine.cached[product_id][0] < self.cache_timeout:
-                    print('Retornando desconto da cache')
                     return DiscountEngine.cached[product_id][1]
         
         if DiscountEngine.last_error_time > 0:
             if time.time() - DiscountEngine.last_error_time < 5:
                 return 0
                 
-        # Não existe desconto em cache ou expirou 
+        # there is no cache or the product was not found
         try:
-            channel = grpc.insecure_channel(os.environ['GRPC_IP_PORT'])
-            stub = discount_pb2_grpc.DiscountStub(channel)
-            perc = float(stub.GetDiscount(discount_pb2.GetDiscountRequest(productID = product_id), timeout=2).percentage)
+            # channel = grpc.insecure_channel(os.environ['GRPC_IP_PORT'])
+            # stub = discount_pb2_grpc.DiscountStub(channel)
+            # perc = float(stub.GetDiscount(discount_pb2.GetDiscountRequest(productID = product_id), timeout=2).percentage)
             DiscountEngine.last_error_time = 0
+            perc = 0
         except Exception as e:
             DiscountEngine.last_error_time = time.time()
             EventNotifierManager().notify_event("error", e)
             return 0
         
-        # Atualiza o desconto na cache. Apesar de não ser um mecanismo sofisticado,
-        # é simples de entender e manter e não compromete o tempo de execução como 
-        # uma lista circular. Um meio termo seria o acesso com mutex (read ou 
-        # write lock) com uma thread de análise a cada X segundos
+        # Updates the cache. Even though is a very simple mechanism, it is easy to understand
+        # and to maintain
         if DiscountEngine.cache_timeout> 0:
-            if len(DiscountEngine.cached) > 10000: # Limite facilmente parametrizavel
+            if len(DiscountEngine.cached) > 10000: # Truncates cache
                 DiscountEngine.cached = {}
             DiscountEngine.cached[product_id] = (time.time(), perc)
             
         return perc
 
 class Product:
-    """ Representa um produto a ser retornado para o chamador do serviço """
     def __init__(self, prod_id, quantity, amount, discount_percentage):
-        # Em produção o melhor seria validar todos os parâmetros de produto
-        # junto à validação sintática e semântica do JSON de entrada em si
         assert(int(quantity) > 0)
         assert(int(amount) > 0)
         assert(int(prod_id) > 0)
@@ -143,7 +117,6 @@ class Product:
         self.is_gift = False
 
 class Cart:
-    """ Representa os totais de compra a serem retornados para o chamador """
     def __init__(self):
         self.total_amount = 0
         self.total_discount = 0
@@ -151,61 +124,41 @@ class Cart:
         self.products = []
     
     def add_product(self, product):
-        # Se for possível manipular os produtos do carrinho após adicionados na 
-        # lista, o total será que ser calculado dinâmicamente antes de gerar o JSON
         self.total_amount += product.total_amount
         self.total_discount += product.discount
         self.total_amount_with_discount = self.total_amount - self.total_discount
         self.products.append(product)
 
 class DefaultBlackFridayEngine:
-    """ Implementa um critério de seleção para qual produto deve ser dado de brinde
-    
-        Seria possível trocar  por outros mecanismos com base  na preferência da
-        loja: produto mais barato, produto menos vendido, etc.
-    """
     def apply(self, products):
-        
-        # Nesse ponto a data poderia ser validada, para fins de teste, sempre 
-        # é Black Friday
-        
-        """ Escolhe o produto mais barato, independente da quantidade """
+        """ Chooses the cheapest product """
         if len(products) <= 0:
             return None
         return sorted(products, key=lambda x: x.total_amount)[0]
 
 class ShopCart:
-    """ Implementa a lógica que atende o serviço.
-    
-        Classe  principal, varre os produtos do carrinho retornando preço e des-
-        contos. Também invoca o método seletor para black friday.
-    """
-        
     def __init__(self):
-        self.black_friday_engine = DefaultBlackFridayEngine() # Facilita manutenção futura, caso mude a politica
-        self.black_friday_products = [] # Evita de colocar informação de is_gift direto no produto, pode levar a erros
+        self.black_friday_engine = DefaultBlackFridayEngine() # Easy to change for another stategy if necessary
+        self.black_friday_products = [] # Avoids to put is_gift inside of the product
         
     def process(self, input_json):
         try:
             try:
                 input_json = json.loads(input_json)
             except:
-                raise cherrypy.HTTPError(500, 'Erro processando JSON de entrada')
+                raise cherrypy.HTTPError(500, 'Error parsing JSON')
             cart = Cart()
             
-            # Varre os produtos recebidos no carrinho
             for product in input_json['products']:
                 prod_id,prod_qnt = product['id'],product['quantity']
                 
                 if prod_qnt <= 0:
                     continue
                 
-                # Busca preço e desconto
                 try:
                     amount,is_gift = ProductDatabase().get_price_gift(prod_id)
                 except KeyError:
-                    # Mercadoria não encontrada, não retorna. Ideal seria possibilidade de
-                    # avisar o chamador que essa mercadoria precisa ser removida do carrinho
+                    # Product not found. Should tell caller that this product should be removed
                     continue
 
                 discount_percentage = DiscountEngine().get_discount(prod_id)
@@ -215,12 +168,10 @@ class ShopCart:
                 if is_gift:
                     self.black_friday_products.append(product)                
             
-            # No futuro pode ser interessante expandir para uma lista de regras de negócio
-            # para pré e pós processamento da venda
             p = self.black_friday_engine.apply(self.black_friday_products)
             if p is not None:
                 p.is_gift = True
-                EventNotifierManager().notify_event("debug", "Produto {0} retornado como gift".format(p.id))
+                EventNotifierManager().notify_event("debug", "Product {0} is a  gift".format(p.id))
 
             cherrypy.response.headers['Content-Type'] = 'application/json'
             return json.dumps(cart, default=lambda o: o.__dict__).encode('utf8')
@@ -230,12 +181,8 @@ class ShopCart:
 
 class ShopCartServer(object):
 
-    """ Implementa um handler do CherryPy para tratar o serviço
-    
-        A opção pelo CherryPy foi feita devido a sua  escalabilidade e simplici-
-        dade. Exceções são tratadas de maneira relativamente graciosa por ele e
-        há a possibilidade de parametrizar inclusive acesso via certificado  di-
-        gital.
+    """ Cherrypy handler
+
     """
     
     # @cherrypy.tools.json_out()
@@ -258,9 +205,6 @@ class ShopCartServer(object):
 
 if __name__ == "__main__":
     
-    if 'GRPC_IP_PORT' not in os.environ:
-        raise Exception('Você deve configurar a variável GRPC_IP_PORT com o IP do serviço de desconto no formato IP:PORTA')
-
     if 'LISTEN_PORT' not in os.environ:
         raise Exception('Você deve configurar a variável LISTEN_PORT com a porta deste serviço')
     
@@ -276,14 +220,12 @@ if __name__ == "__main__":
     print('Bem-vindo ao programa Backend')
     print('Estamos prontos e executando na porta',os.environ['LISTEN_PORT'])
 
-    # Se necessário, aumentar o número de threads para atendimento concorrente
-    # utilizando 'server.thread_pool':x
-    
+    # if it is necessary to increase thread number, use 'server.thread_pool':x
     cherrypy.config.update({'server.socket_host':"0.0.0.0", 
                             'server.socket_port':int(os.environ['LISTEN_PORT']),
-                            'log.screen': False, # Nao joga informação na tela
+                            'log.screen': False, # dont print on screen
                             'log.access_file': "access1.log", 
                             'log.error_file': "error1.log",
-                            'request.show_tracebacks': True}) # True para retornar stack trace, usar False em produção
+                            'request.show_tracebacks': True}) # True to return stack trace, use False in production
     cherrypy.quickstart(ShopCartServer(), '/', {})
 
